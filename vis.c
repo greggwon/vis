@@ -35,15 +35,17 @@
 # include	<poll.h>
 # include	<sys/time.h>
 # include	<time.h>
+# include	<math.h>
 # include	<sys/wait.h>
 
 # define   BELL  "\007"
-# define   MAXCOLS  COLS
-# define   MAXROWS  LINES
+# define   MAXCOLS  (COLS)
+# define   MAXROWS  (LINES)
 # define   STRFORM  "%.*s\n"
 
 #define HEADER	2
 #define OUTLINE	3
+#define HIGHLIGHT	4
 
 extern FILE *mypopen(char *, char*);
 extern void wcenter( WINDOW *w, int cols, int color, char *);
@@ -51,9 +53,12 @@ extern void catch();
 extern int mypclose (FILE *fp );
 static WINDOW* showhelp(WINDOW *par);
 
+int max( int v1, int v2 ) {
+	return v1 > v2 ? v1 : v2;
+}
+
 int main (int argc, char **argv)
 {
-	char fbuf[1000];
 	char buf[1000], s[1000], dashes[1000];
 	char shell[1000], *getshell();
 	int yyy = -1, yy, xx, i, t, intv;
@@ -78,20 +83,21 @@ int main (int argc, char **argv)
 
 	init_pair(HEADER, COLOR_BLACK, COLOR_WHITE);
 	init_pair(OUTLINE, COLOR_BLACK, COLOR_GREEN);
+	init_pair(HIGHLIGHT, COLOR_BLACK, COLOR_CYAN);
 
 	strcpy (shell, getshell());
 
-	for (i=0; i<MAXCOLS-1 && i < (sizeof(dashes)-1); i++) dashes[i] = '-';
+	for (i=0; i<MAXCOLS-1 && i < (sizeof(dashes)-1); i++)
+		dashes[i] = (i & 1) ? '-' : '=';
 	dashes[i] = '\0';
 
 	if (strcmp(argv[1], "-t") == 0) {
 		intv = atoi(argv[2]); 
-		first = 3;
 	} 
 	else {
-		first = 1;
 		intv = 60;
 	}
+	first = 3;
 
 	if (intv < 0) 
 		intv = 5;
@@ -100,11 +106,12 @@ int main (int argc, char **argv)
 	move (0,0);
 	printw("Time delay = %d second(s)", intv);
 	refresh();
+	WINDOW *help = NULL;
 
 	int n = 0;
 	for (;;) {
 		int cnt = 1; /*  Initial number of lines used on the screen.  */
-		for (t=first; t<argc; ++t) {
+		for (t=first; t < argc; ++t) {
 			move (cnt++,0);
 			if ((p = mypopen (argv[t], shell)) == NULL) {
 				printw ("Unable to open requested command.  Sorry.\n");
@@ -114,25 +121,41 @@ int main (int argc, char **argv)
 			strcat(s, argv[t]);
 			attron(COLOR_PAIR(HEADER));
 			wcenter (mainWin, MAXCOLS, 0, s); 
- 			clrtoeol();
 			attroff(COLOR_PAIR(HEADER));
+ 			clrtoeol();
+
  			move( cnt, 0 );
+			attron(COLOR_PAIR(HIGHLIGHT));
  			printw("$ ");
  			printw("%s", argv[t]);
+			attroff(COLOR_PAIR(HIGHLIGHT));
+ 			clrtoeol();
  			refresh();
 			while (fgets (buf, sizeof(buf)-1, p) != NULL) {
 				buf[sizeof(buf)-1] = 0;
-				sprintf (fbuf, STRFORM, COLS, buf); 
 				move( cnt++, 0 );
-				printw("%s",fbuf);
+				printw("%.*s", COLS-1, buf);
 				clrtoeol();
-				refresh();
 				if (cnt >= MAXROWS) break;
 			}
+			refresh();
 			mypclose (p);
 		}
+		if( cnt < MAXROWS ) {
+			move( cnt, 0 );
+			attron(COLOR_PAIR(HIGHLIGHT));
+			printw("%s", dashes);
+			attroff(COLOR_PAIR(HIGHLIGHT));
+			printw("%s\n","");
+		}
 		getyx(stdscr, yy, xx);
-		//clrtobot();
+		if( help == NULL ) {
+			clrtobot();
+		} else {
+			clrtobot();
+			help = showhelp( mainWin );
+			wrefresh(help);
+		}
 		if (yyy == -1) {
 			yyy=yy;
 		} 
@@ -140,7 +163,6 @@ int main (int argc, char **argv)
 			printf(BELL);
 			yyy=yy;
 		}
-		WINDOW *help = NULL;
 		int v = 0;
 		do {
 			move (0,0);
@@ -149,7 +171,9 @@ int main (int argc, char **argv)
 			time(&now);
 			sprintf( buf, "%.24s", ctime( &now ));
 			wcenter (mainWin, MAXCOLS, 0, buf); 
-			move (0,0);
+			move (0,MAXCOLS-9);
+			printw("?=help");
+			move( 0, 0);
 			printw("Time delay = %d second(s)", intv);
 			refresh();
 			fdcnt = 1;
@@ -164,13 +188,16 @@ int main (int argc, char **argv)
 				char c = getch();
 				if( help != NULL ) {
 					delwin(help);
+					refresh();
 					help = NULL;
+					break;
 				}
 				switch( c ) {
 					case '0': case '1': case '2': case '3': case '4':
 					case '5': case '6': case '7': case '8': case '9':
 						intv = intv * 10 + (c-'0');
 						break;
+					case 's' : intv = 60; break;
 					case '\n': case '\r':
 						intv=0;
 						break;
@@ -238,18 +265,22 @@ static WINDOW* showhelp(WINDOW *main) {
 	wmove(sub, ln++, 3 );
 	wprintw( sub, "%s","?     - this help" );
 	wmove(sub, ln++, 3 );
+	wprintw( sub, "%s","s     - delay = 60" );
+	wmove(sub, ln++, 3 );
 	wprintw( sub, "%s","q     - quit" );
 	wmove(sub, ln++, 3 );
 	wprintw( sub, "%s","[0-9] - new delay after <CR>" );
 	wmove(sub, ln++, 3 );
-	wprintw( sub, "%s","<CR>  - reset delay to 250ms" );
+	wprintw( sub, "%s","<CR>  - reset delay to 0" );
 
 	wrefresh(sub);
 	return sub;
+#if 0
 
 	wgetch(sub);
 	catch();
 	delwin(sub);
+#endif
 }
 
 void wcenter (WINDOW *w, int cols, int color, char *s)
