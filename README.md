@@ -17,7 +17,7 @@ There are lots of things to look at on a UNIX/Linux system.  A lot of things are
 a script to get you the details, putting together several command lines like shown below can be handy too.
 
 ### system logging
-vis -t 10 'tail /var/log/syslog' 'tail /var/log/dmesg'
+vis -t 10 'tail /var/log/syslog' 'sudo dmesg | tail'
 
 ### users comming and going and accessing shared files
 vis -t 10 'w' 'tail /var/log/samba/log.smbd' 'tail /var/log/samba/log.nmbd'
